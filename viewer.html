@@ -1,0 +1,312 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>시트 뷰어</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+
+  <style>
+    body{
+      font-family: system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+      margin:0; padding:16px; background:#f3f4f6; color:#111827;
+    }
+    .card{
+      max-width:1100px; margin:0 auto; background:#fff; border-radius:12px;
+      padding:16px 20px 20px; box-shadow:0 10px 25px rgba(15,23,42,0.08);
+    }
+    h1{font-size:20px; margin:0 0 4px;}
+    .sub{font-size:12px; color:#6b7280; margin-bottom:8px;}
+    .folder-label{
+      display:inline-flex; align-items:center; gap:6px;
+      font-size:12px; color:#4b5563; margin-bottom:12px;
+      padding:4px 8px; border-radius:999px; background:#eff6ff;
+    }
+
+    .sheet-menu{display:flex; gap:6px; overflow-x:auto; padding-bottom:4px; margin-bottom:8px;}
+    .sheet-tab{
+      flex:0 0 auto; padding:6px 14px; font-size:13px; border-radius:999px;
+      border:1px solid #d1d5db; background:#f9fafb; color:#4b5563; cursor:pointer;
+      white-space:nowrap; transition:background .15s,color .15s,border-color .15s;
+    }
+    .sheet-tab:hover{background:#e5e7eb;}
+    .sheet-tab.active{
+      background:#3b82f6; border-color:#2563eb; color:#fff; font-weight:600;
+    }
+
+    .toolbar{
+      display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:8px;
+    }
+    button{
+      border-radius:999px; border:none; padding:6px 14px; font-size:13px; cursor:pointer;
+      background:#3b82f6; color:#fff; display:inline-flex; align-items:center; gap:4px;
+    }
+    button:disabled{opacity:.6; cursor:default;}
+    button.secondary{background:#e5e7eb; color:#374151;}
+    .status{font-size:12px; color:#6b7280;}
+
+    table{
+      width:100%; border-collapse:collapse; margin-top:8px;
+      font-size:13px; table-layout:fixed;
+    }
+    thead{background:#f9fafb;}
+    th,td{
+      border-bottom:1px solid #e5e7eb; padding:6px 8px; text-align:left;
+      overflow:hidden; white-space:nowrap; text-overflow:ellipsis;
+    }
+    th{font-weight:600; font-size:12px; color:#4b5563;}
+    tbody tr:nth-child(even){background:#f9fafb;}
+    .empty{
+      padding:20px 4px; text-align:center; font-size:13px; color:#9ca3af;
+    }
+    .warn{
+      padding:8px 12px; border-radius:8px;
+      background:#fef3c7; color:#92400e; font-size:12px; margin-bottom:8px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1 id="pageTitle">시트 뷰어</h1>
+    <div id="pageSub" class="sub"></div>
+    <div id="folderLabel" class="folder-label" style="display:none;">
+      <span>📁 드라이브 폴더:</span>
+      <strong id="folderName">불러오는 중…</strong>
+    </div>
+
+    <div id="warnBox" class="warn" style="display:none;">
+      ⚠️ 스프레드시트 ID가 없어서 데이터를 불러올 수 없습니다.
+      URL 뒤에 <code>?id=스프레드시트ID</code> 형태로 접속해야 합니다.
+    </div>
+
+    <!-- 시트 탭 메뉴 (한 스프레드시트 안의 여러 탭) -->
+    <div id="sheetMenu" class="sheet-menu"></div>
+
+    <!-- 툴바 -->
+    <div class="toolbar">
+      <button id="refreshBtn" onclick="reloadCurrentSheet()">🔄 새로고침</button>
+      <button class="secondary" onclick="location.reload()">⟳ 전체 새로고침</button>
+      <span id="status" class="status"></span>
+    </div>
+
+    <!-- 데이터 테이블 -->
+    <div style="overflow:auto; max-height:480px;">
+      <table>
+        <thead id="thead"></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <script>
+    // ★★★ 여기만 네 값으로 바꾸면 됨 ★★★
+
+    // 1) Google Cloud Console에서 만든 "API 키" (지금 네가 준 값)
+    const API_KEY = 'AIzaSyDcyBVuyykaAEj0Fy7jJqzV1qCBfc82xkU';  // ← 여기에 네 키 그대로 붙여넣기
+
+    // 2) 사용할 드라이브 폴더 ID (네가 준 링크에서 추출한 값)
+    const FOLDER_ID = '1t33dy_UQCfsvoEQ9yOctIxvoT623i-j4';
+
+    // URL 파라미터 읽기: id, sheet, title
+    const params = new URLSearchParams(location.search);
+    const SPREADSHEET_ID = params.get('id') || params.get('sheet') || ''; // 시트 ID
+    const TITLE_PARAM     = params.get('title') || '';                     // 페이지 제목 (선택)
+
+    let currentSheetName = '';
+
+    function setStatus(msg){
+      document.getElementById('status').textContent = msg || '';
+    }
+    function setLoading(isLoading,msg){
+      const btn = document.getElementById('refreshBtn');
+      btn.disabled = isLoading || !currentSheetName;
+      setStatus(msg || (isLoading ? '불러오는 중…' : ''));
+    }
+
+    // 드라이브 폴더 이름 가져오기
+    async function fetchFolderName() {
+      if (!FOLDER_ID) return null;
+
+      try {
+        const url =
+          `https://www.googleapis.com/drive/v3/files/${FOLDER_ID}` +
+          `?fields=name&key=${API_KEY}`;
+        const res = await fetch(url);
+        if (!res.ok) {
+          console.warn('폴더 이름 조회 실패:', res.status);
+          return null;
+        }
+        const json = await res.json();
+        return json.name || null;
+      } catch (err) {
+        console.error('폴더 이름 조회 중 오류:', err);
+        return null;
+      }
+    }
+
+    // 시트 탭(들) 이름 목록 가져오기 (한 스프레드시트 내 탭들)
+    async function fetchSheetNames(spreadsheetId) {
+      const url =
+        `https://sheets.googleapis.com/v4/spreadsheets/${spreadsheetId}` +
+        `?fields=sheets.properties.title&key=${API_KEY}`;
+
+      const res = await fetch(url);
+      if (!res.ok) {
+        throw new Error('시트 목록 HTTP ' + res.status);
+      }
+      const json = await res.json();
+      const names = (json.sheets || []).map(s => s.properties.title);
+      return names;
+    }
+
+    // 초기 설정 (제목/폴더명/탭 목록)
+    async function initPage(){
+      const titleEl = document.getElementById('pageTitle');
+      const subEl   = document.getElementById('pageSub');
+      const warnBox = document.getElementById('warnBox');
+      const folderLabel = document.getElementById('folderLabel');
+      const folderNameEl = document.getElementById('folderName');
+
+      // 제목 세팅
+      if (TITLE_PARAM) {
+        titleEl.textContent = TITLE_PARAM;
+        subEl.textContent = '이 페이지는 "' + (TITLE_PARAM) + '"에 연결된 스프레드시트를 보여줍니다.';
+      } else {
+        subEl.textContent = 'URL에 title 파라미터를 넣으면 개별 페이지명을 표시할 수 있습니다.';
+      }
+
+      // 폴더 이름 표시
+      folderLabel.style.display = 'inline-flex';
+      fetchFolderName().then(name => {
+        folderNameEl.textContent = name || '(폴더 이름을 불러오지 못했습니다)';
+      });
+
+      // 스프레드시트 ID 없으면 종료
+      if (!SPREADSHEET_ID) {
+        warnBox.style.display = 'block';
+        setLoading(false, '');
+        return;
+      }
+
+      setLoading(true, '시트 목록 불러오는 중…');
+
+      const menu = document.getElementById('sheetMenu');
+      menu.innerHTML = '';
+
+      try {
+        const sheetNames = await fetchSheetNames(SPREADSHEET_ID);
+
+        if (!sheetNames.length) {
+          setLoading(false, '사용 가능한 시트(탭)가 없습니다.');
+          return;
+        }
+
+        // 탭 버튼 생성
+        sheetNames.forEach(name => {
+          const tab = document.createElement('button');
+          tab.className = 'sheet-tab';
+          tab.textContent = name;
+          tab.dataset.name = name;
+          tab.onclick = () => selectSheet(name);
+          menu.appendChild(tab);
+        });
+
+        // 기본: 첫 번째 탭 자동 선택
+        currentSheetName = sheetNames[0];
+        highlightActiveTab(currentSheetName);
+        loadDataForSheet(currentSheetName);
+      } catch (err) {
+        console.error(err);
+        setLoading(false, '시트 목록을 불러오지 못했습니다: ' + err.message);
+      }
+    }
+
+    function highlightActiveTab(name){
+      document.querySelectorAll('.sheet-tab').forEach(tab=>{
+        tab.classList.toggle('active', tab.dataset.name === name);
+      });
+    }
+
+    function selectSheet(name){
+      if (!name) return;
+      currentSheetName = name;
+      highlightActiveTab(name);
+      loadDataForSheet(name);
+    }
+
+    function reloadCurrentSheet(){
+      if(!currentSheetName) return;
+      loadDataForSheet(currentSheetName);
+    }
+
+    // 실제 데이터(값) 가져오기
+    async function loadDataForSheet(sheetName){
+      setLoading(true, `"${sheetName}" 시트에서 데이터 불러오는 중…`);
+      try{
+        const range = encodeURIComponent(sheetName); // 시트 전체
+        const url =
+          `https://sheets.googleapis.com/v4/spreadsheets/${SPREADSHEET_ID}/values/${range}` +
+          `?key=${API_KEY}`;
+        const res = await fetch(url);
+        if(!res.ok){
+          throw new Error('HTTP ' + res.status);
+        }
+        const json = await res.json();
+        const values = json.values || [];
+        renderTable(values);
+        const now = new Date();
+        setLoading(false, `[${sheetName}] 마지막 갱신: ` + now.toLocaleString());
+      }catch(err){
+        console.error(err);
+        setLoading(false, '데이터를 불러오지 못했습니다: ' + err.message);
+      }
+    }
+
+    // 테이블 렌더링
+    function renderTable(values){
+      const thead = document.getElementById('thead');
+      const tbody = document.getElementById('tbody');
+      thead.innerHTML = '';
+      tbody.innerHTML = '';
+
+      if(!values || !values.length){
+        tbody.innerHTML = '<tr><td class="empty">데이터가 없습니다.</td></tr>';
+        return;
+      }
+
+      const headers = values[0];
+      const rows = values.slice(1);
+
+      const trHead = document.createElement('tr');
+      headers.forEach(h=>{
+        const th = document.createElement('th');
+        th.textContent = h;
+        trHead.appendChild(th);
+      });
+      thead.appendChild(trHead);
+
+      if(!rows.length){
+        const tr = document.createElement('tr');
+        const td = document.createElement('td');
+        td.colSpan = headers.length || 1;
+        td.className = 'empty';
+        td.textContent = '데이터가 없습니다.';
+        tr.appendChild(td);
+        tbody.appendChild(tr);
+        return;
+      }
+
+      rows.forEach(row=>{
+        const tr = document.createElement('tr');
+        headers.forEach((_,i)=>{
+          const td = document.createElement('td');
+          td.textContent = row[i] ?? '';
+          tr.appendChild(td);
+        });
+        tbody.appendChild(tr);
+      });
+    }
+
+    window.addEventListener('load', initPage);
+  </script>
+</body>
+</html>
