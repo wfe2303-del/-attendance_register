@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<title>Viewer 링크 생성기 (Admin)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+
+<style>
+  body { font-family: system-ui; background:#f3f4f6; margin:0; padding:20px; }
+  .card {
+    max-width:900px; margin:0 auto; background:#fff; border-radius:12px;
+    padding:20px; box-shadow:0 8px 22px rgba(0,0,0,0.08);
+  }
+  label { font-size:14px; font-weight:600; margin-top:12px; display:block; }
+  input {
+    width:100%; padding:10px; border:1px solid #d1d5db; border-radius:8px;
+    margin-top:4px; font-size:14px;
+  }
+  button {
+    margin-top:16px; padding:10px 18px; border:none; border-radius:999px;
+    background:#3b82f6; color:white; font-size:14px; cursor:pointer;
+  }
+  table { width:100%; border-collapse:collapse; margin-top:20px; font-size:13px; }
+  th,td { border-bottom:1px solid #e5e7eb; padding:8px; }
+  th { background:#f9fafb; font-weight:600; }
+  .btn-sm {
+    padding:4px 10px; border-radius:999px; border:none; cursor:pointer;
+    font-size:12px;
+  }
+  .open { background:#e5e7eb; }
+  .copy { background:#3b82f6; color:white; }
+  .del { background:#fee2e2; color:#b91c1c; }
+</style>
+</head>
+
+<body>
+<div class="card">
+  <h2>📌 Viewer 링크 생성기 (관리자 페이지)</h2>
+
+  <label>스프레드시트 링크 또는 ID</label>
+  <input id="sheetInput" placeholder="전체 링크 또는 스프레드시트 ID만 입력">
+
+  <label>표시될 페이지 제목</label>
+  <input id="titleInput" placeholder="예: 호스텔 1기 온라인">
+
+  <button onclick="generateLink()">🔗 링크 생성 및 저장</button>
+
+  <h3 style="margin-top:30px;">📄 저장된 링크 목록</h3>
+  <div id="listArea"></div>
+</div>
+
+<script>
+const STORAGE_KEY = "viewer_links_v1";
+const VIEWER_BASE = "https://wfe2303-del.github.io/viewer.html";
+
+function extractId(text) {
+  text = text.trim();
+  const m = text.match(/\/d\/([a-zA-Z0-9-_]+)/);
+  return m ? m[1] : text;
+}
+
+function loadLinks() {
+  const raw = localStorage.getItem(STORAGE_KEY);
+  return raw ? JSON.parse(raw) : [];
+}
+
+function saveLinks(list) {
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+}
+
+function renderList() {
+  const list = loadLinks();
+  if (!list.length) {
+    document.getElementById("listArea").innerHTML = "<p>저장된 링크 없음</p>";
+    return;
+  }
+
+  let html = `<table>
+    <thead>
+      <tr><th>#</th><th>제목</th><th>URL</th><th>관리</th></tr>
+    </thead><tbody>`;
+
+  list.forEach((item, idx) => {
+    html += `
+      <tr>
+        <td>${idx + 1}</td>
+        <td>${item.title}</td>
+        <td style="word-break:break-all;">${item.url}</td>
+        <td>
+          <button class="btn-sm open" onclick="openLink(${idx})">열기</button>
+          <button class="btn-sm copy" onclick="copyLink(${idx})">복사</button>
+          <button class="btn-sm del" onclick="deleteLink(${idx})">삭제</button>
+        </td>
+      </tr>`;
+  });
+
+  html += "</tbody></table>";
+  document.getElementById("listArea").innerHTML = html;
+}
+
+function generateLink() {
+  const sheetRaw = document.getElementById("sheetInput").value;
+  const title = document.getElementById("titleInput").value;
+
+  if (!sheetRaw || !title) return alert("둘 다 입력해야 합니다.");
+
+  const id = extractId(sheetRaw);
+  const url = `${VIEWER_BASE}?id=${id}&title=${encodeURIComponent(title)}`;
+
+  const list = loadLinks();
+  list.push({ id, title, url });
+  saveLinks(list);
+
+  renderList();
+  alert("생성 완료!");
+}
+
+function copyLink(idx) {
+  const url = loadLinks()[idx].url;
+  navigator.clipboard.writeText(url);
+  alert("복사됨!");
+}
+
+function openLink(idx) {
+  window.open(loadLinks()[idx].url, "_blank");
+}
+
+function deleteLink(idx) {
+  const list = loadLinks();
+  list.splice(idx, 1);
+  saveLinks(list);
+  renderList();
+}
+
+renderList();
+</script>
+</body>
+</html>
