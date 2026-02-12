@@ -3,378 +3,557 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>결제 내역 추이 (막대 + 곡선)</title>
+  <title>결제 추이 차트 (엑셀 업로드)</title>
+
+  <!-- SheetJS (xlsx) -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+
+  <!-- Chart.js -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"></script>
 
   <style>
-    :root{--bg:#f6f7fb;--card:#fff;--bd:#e5e7eb;--fg:#111827;--muted:#6b7280;--shadow:0 8px 24px rgba(17,24,39,.08)}
+    :root{
+      --bg:#f6f7fb; --card:#fff; --bd:#e5e7eb; --fg:#111827; --muted:#6b7280;
+      --shadow:0 10px 28px rgba(17,24,39,.08);
+      --radius:16px;
+    }
     *{box-sizing:border-box}
     body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;background:var(--bg);color:var(--fg)}
     header{position:sticky;top:0;z-index:10;background:#fff;border-bottom:1px solid var(--bd)}
-    .wrap{max-width:1100px;margin:0 auto;padding:16px}
-    h1{font-size:18px;margin:0}
-    .sub{color:var(--muted);font-size:12px;margin-top:6px;line-height:1.4}
-    .card{background:var(--card);border:1px solid var(--bd);border-radius:14px;box-shadow:var(--shadow)}
-    .in{padding:14px}
-    .row{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
-    label{font-size:12px;color:var(--muted)}
-    input[type="number"], input[type="time"], select{
-      border:1px solid var(--bd);border-radius:10px;padding:8px 10px;background:#fff;color:var(--fg);
-      font-size:13px;min-width:140px
+    .wrap{max-width:1120px;margin:0 auto;padding:16px}
+    .row{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+    .card{background:var(--card);border:1px solid var(--bd);border-radius:var(--radius);box-shadow:var(--shadow)}
+    .controls{padding:14px}
+    .controls label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+    .controls .field{display:flex;gap:10px;align-items:center}
+    input[type="file"]{max-width:360px}
+    select,input[type="time"],input[type="number"]{
+      padding:10px 12px;border:1px solid var(--bd);border-radius:12px;font-size:14px;background:#fff;min-width:160px
     }
-    input[type="file"]{font-size:13px}
-    button{border:0;border-radius:12px;padding:10px 12px;background:#111827;color:#fff;font-weight:800;cursor:pointer;font-size:13px}
-    button:disabled{opacity:.5;cursor:not-allowed}
-    .msg{margin-top:10px;font-size:12px;white-space:pre-wrap;line-height:1.5}
-    .warn{color:#b91c1c;display:none}
-    .ok{color:#059669;display:none}
-    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,monospace}
-    canvas{width:100%!important;height:520px!important}
+    button{padding:10px 14px;border:1px solid var(--bd);border-radius:12px;background:#fff;cursor:pointer}
+    button:hover{background:#f3f4f6}
+    .hint{font-size:13px;color:var(--muted);margin-top:8px;line-height:1.45}
+    .stats{padding:14px;border-top:1px dashed var(--bd);display:flex;flex-wrap:wrap;gap:10px}
+    .pill{padding:8px 10px;border:1px solid var(--bd);border-radius:999px;font-size:13px;background:#fff}
+    .chart-card{padding:14px;margin-top:12px}
+    canvas{width:100% !important;height:520px !important}
+    .small{font-size:12px;color:var(--muted)}
+    .error{color:#b91c1c;font-weight:700}
+    .ok{color:#047857;font-weight:700}
+    details{margin-top:10px}
+    summary{cursor:pointer;color:var(--muted);font-size:13px}
+    pre{white-space:pre-wrap;background:#0b1220;color:#e5e7eb;border-radius:12px;padding:12px;overflow:auto;font-size:12px}
+    .chk{display:flex;align-items:center;gap:8px;margin-top:22px}
   </style>
 </head>
 
 <body>
 <header>
   <div class="wrap">
-    <h1>결제 내역 추이 (막대 + 곡선)</h1>
-    <div class="sub">
-      엑셀 업로드 → 첫결제일 <span class="mono">19:30</span> ~ 마지막결제일 <span class="mono">11:45</span> 구간의 결제 건수 추이를 표시합니다.<br/>
-      (막대=구간별 결제건수 / 곡선=누적 또는 이동평균, 툴팁으로 “몇건” 표시)
+    <div class="row" style="justify-content:space-between">
+      <div>
+        <div style="font-weight:800;font-size:18px">결제 내역 추이 (막대 + 곡선)</div>
+        <div class="small">✅ 곡선도 “구간별 결제 건수”를 그대로 따라가도록 변경(누적 제거)</div>
+      </div>
+      <div class="small" id="fileInfo"></div>
     </div>
   </div>
 </header>
 
 <main class="wrap">
-  <div class="card">
-    <div class="in">
-      <div class="row">
-        <div>
-          <label>엑셀 업로드 (.xlsx/.xls)</label><br/>
+  <section class="card controls">
+    <div class="row">
+      <div style="min-width:340px">
+        <label>엑셀 파일 업로드 (.xlsx)</label>
+        <div class="field">
           <input id="file" type="file" accept=".xlsx,.xls" />
+          <button id="demoBtn" type="button">샘플</button>
         </div>
-
-        <div>
-          <label>구간(분)</label><br/>
-          <input id="binMinutes" type="number" min="1" step="1" value="15" />
-        </div>
-
-        <div>
-          <label>시작 시각(첫결제일 기준)</label><br/>
-          <input id="startClock" type="time" value="19:30" />
-        </div>
-
-        <div>
-          <label>종료 시각(마지막결제일 기준)</label><br/>
-          <input id="endClock" type="time" value="11:45" />
-        </div>
-
-        <div>
-          <label>곡선(라인)</label><br/>
-          <select id="lineType">
-            <option value="cumulative" selected>누적 결제건수</option>
-            <option value="movingAvg">이동평균(막대 기준)</option>
-          </select>
-        </div>
-
-        <div style="margin-left:auto">
-          <button id="render" disabled>그래프 만들기</button>
+        <div class="hint">
+          ✅ “결제일/결제시간” 열을 자동 추정하고 직접 선택도 가능합니다.<br/>
+          ✅ 한국어 시간 문자열(오전/오후, 2월11일 12시 등)도 파싱합니다.
         </div>
       </div>
 
-      <div id="ok" class="msg ok"></div>
-      <div id="warn" class="msg warn"></div>
+      <div>
+        <label>결제시간 열 선택</label>
+        <select id="timeCol" disabled></select>
+      </div>
 
-      <div class="msg" style="color:var(--muted);margin-top:10px">
-        ✅ 외부 라이브러리를 자동 로딩합니다(여러 CDN 우회). 회사망에서 특정 CDN이 막혀도 다음 CDN으로 재시도합니다.
+      <div>
+        <label>집계 단위(분)</label>
+        <select id="bin">
+          <option value="5">5분</option>
+          <option value="10">10분</option>
+          <option value="15" selected>15분</option>
+          <option value="30">30분</option>
+          <option value="60">60분</option>
+        </select>
+      </div>
+
+      <div>
+        <label>시작 시각(첫 결제 날짜 기준)</label>
+        <input id="startTime" type="time" value="19:30" step="60" />
+      </div>
+
+      <div>
+        <label>종료 시각(마지막 결제 날짜 기준)</label>
+        <input id="endTime" type="time" value="11:45" step="60" />
+      </div>
+
+      <div>
+        <label>막대 두께(px)</label>
+        <input id="barW" type="number" min="6" max="60" value="24" />
+      </div>
+
+      <div class="chk">
+        <input id="removeZero" type="checkbox" checked />
+        <label for="removeZero" style="margin:0;color:var(--muted);font-size:13px">0건 구간 제거</label>
+      </div>
+
+      <div>
+        <label>&nbsp;</label>
+        <button id="renderBtn" type="button">다시 그리기</button>
       </div>
     </div>
-  </div>
 
-  <div class="card" style="margin-top:12px">
-    <div class="in">
-      <canvas id="chart"></canvas>
-    </div>
-  </div>
+    <div class="stats" id="stats"></div>
+    <div class="hint" id="msg"></div>
+
+    <details>
+      <summary>디버그 보기(파싱 샘플/실패 샘플)</summary>
+      <pre id="debug"></pre>
+    </details>
+  </section>
+
+  <section class="card chart-card">
+    <canvas id="chart"></canvas>
+  </section>
 </main>
 
 <script>
-  // ---------------- UI ----------------
-  const okEl = document.getElementById('ok');
-  const warnEl = document.getElementById('warn');
-  function showOk(msg){ okEl.style.display='block'; okEl.textContent=msg; }
-  function showWarn(msg){ warnEl.style.display='block'; warnEl.textContent=msg; }
-  function clearMsg(){ okEl.style.display='none'; okEl.textContent=''; warnEl.style.display='none'; warnEl.textContent=''; }
+  // ---------- Utils ----------
+  const pad2 = n => String(n).padStart(2,'0');
+  const fmtK = d => `${d.getFullYear()}-${pad2(d.getMonth()+1)}-${pad2(d.getDate())} ${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+  const safeStr = v => (v===null||v===undefined) ? '' : String(v);
 
-  // ---------------- Dynamic CDN loader ----------------
-  function loadScriptSequential(urls){
-    return new Promise(async (resolve, reject) => {
-      let lastErr = null;
-      for (const url of urls){
-        try{
-          await new Promise((res, rej)=>{
-            const s = document.createElement('script');
-            s.src = url;
-            s.async = true;
-            s.onload = () => res();
-            s.onerror = () => rej(new Error('Failed: ' + url));
-            document.head.appendChild(s);
-          });
-          return resolve(url);
-        }catch(e){ lastErr = e; }
-      }
-      reject(lastErr || new Error('All CDN failed'));
-    });
+  function parseTimeHHMM(hhmm){
+    const [h,m] = hhmm.split(':').map(Number);
+    return {h, m};
+  }
+  function setDayTime(date, hhmm){
+    const {h,m} = parseTimeHHMM(hhmm);
+    const d = new Date(date);
+    d.setHours(h, m, 0, 0);
+    return d;
   }
 
-  async function ensureLibs(){
-    // XLSX (SheetJS)
-    if (!window.XLSX){
-      const loadedFrom = await loadScriptSequential([
-        // jsDelivr
-        'https://cdn.jsdelivr.net/npm/xlsx@0.19.3/dist/xlsx.full.min.js',
-        // unpkg
-        'https://unpkg.com/xlsx@0.19.3/dist/xlsx.full.min.js',
-        // cdnjs (버전이 없을 수 있어 fallback)
-        'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.19.3/xlsx.full.min.js'
-      ]);
-      // console.log('XLSX loaded from', loadedFrom);
-    }
+  // Excel serial -> Date (fallback)
+  function excelDateToJSDate(serial){
+    const utcDays = Math.floor(serial - 25569);
+    const utcValue = utcDays * 86400;
+    const dateInfo = new Date(utcValue * 1000);
 
-    // Chart.js
-    if (!window.Chart){
-      const loadedFrom = await loadScriptSequential([
-        'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js',
-        'https://unpkg.com/chart.js@4.4.1/dist/chart.umd.min.js',
-        'https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js'
-      ]);
-      // console.log('Chart loaded from', loadedFrom);
-    }
+    const fractionalDay = serial - Math.floor(serial) + 1e-10;
+    let totalSeconds = Math.floor(86400 * fractionalDay);
 
-    if (!window.XLSX) throw new Error('XLSX 로딩 실패 (모든 CDN 차단)');
-    if (!window.Chart) throw new Error('Chart.js 로딩 실패 (모든 CDN 차단)');
+    const seconds = totalSeconds % 60;
+    totalSeconds -= seconds;
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+    return new Date(dateInfo.getFullYear(), dateInfo.getMonth(), dateInfo.getDate(), hours, minutes, seconds, 0);
   }
 
-  // 페이지 로드시 라이브러리 로딩 시도 → 성공하면 버튼 활성화 준비
-  (async ()=>{
-    clearMsg();
-    showOk('라이브러리 로딩 중...');
-    try{
-      await ensureLibs();
-      showOk('✅ 라이브러리 로딩 완료. 엑셀 파일을 업로드하세요.');
-    }catch(e){
-      showWarn(
-        '❌ 라이브러리 로딩 실패(회사망/보안정책으로 모든 CDN 차단 가능)\n' +
-        '해결: 네트워크가 허용된 환경에서 열거나, 내부망 허용 도메인에 CDN을 추가해야 합니다.\n\n' +
-        (e?.message || e)
-      );
-    }
-  })();
+  function parseKoreanDateString(s, fallbackYear){
+    const raw = safeStr(s).trim();
+    if (!raw) return null;
 
-  // ---------------- Utils ----------------
-  function pad2(n){ return String(n).padStart(2,'0'); }
-  function fmt(dt){ return `${dt.getFullYear()}-${pad2(dt.getMonth()+1)}-${pad2(dt.getDate())} ${pad2(dt.getHours())}:${pad2(dt.getMinutes())}`; }
-  function parseClock(clockStr){
-    const [h,m] = (clockStr||'00:00').split(':').map(x=>parseInt(x,10));
-    return {h:isFinite(h)?h:0, m:isFinite(m)?m:0};
+    // "YYYY. M. D. 오전/오후 H:MM:SS"
+    let m = raw.match(/^(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*(오전|오후)\s*(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+    if (m){
+      const year = Number(m[1]);
+      const month = Number(m[2]);
+      const day = Number(m[3]);
+      const ampm = m[4];
+      let hour = Number(m[5]);
+      const min = Number(m[6]);
+      const sec = Number(m[7] ?? 0);
+
+      if (ampm === '오후' && hour < 12) hour += 12;
+      if (ampm === '오전' && hour === 12) hour = 0;
+
+      const d = new Date(year, month-1, day, hour, min, sec, 0);
+      return isNaN(d) ? null : d;
+    }
+
+    // "M월D일(요일) H시(분)(초)"
+    m = raw.match(/^(\d{1,2})\s*월\s*(\d{1,2})\s*일(?:\([^)]*\))?\s*(\d{1,2})\s*시(?:\s*(\d{1,2})\s*분)?(?:\s*(\d{1,2})\s*초)?$/);
+    if (m){
+      const year = Number(fallbackYear || new Date().getFullYear());
+      const month = Number(m[1]);
+      const day = Number(m[2]);
+      const hour = Number(m[3]);
+      const min = Number(m[4] ?? 0);
+      const sec = Number(m[5] ?? 0);
+
+      const d = new Date(year, month-1, day, hour, min, sec, 0);
+      return isNaN(d) ? null : d;
+    }
+
+    return null;
   }
 
-  function toDateAny(v){
+  function normalizeToDate(v, fallbackYear){
+    if (v === null || v === undefined || v === '') return null;
+
     if (v instanceof Date && !isNaN(v)) return v;
-
-    if (typeof v === 'number' && isFinite(v) && window.XLSX?.SSF?.parse_date_code){
-      const o = XLSX.SSF.parse_date_code(v);
-      if (o?.y && o?.m && o?.d){
-        return new Date(o.y, o.m-1, o.d, o.H||0, o.M||0, Math.floor(o.S||0));
-      }
-    }
+    if (typeof v === 'number') return excelDateToJSDate(v);
 
     if (typeof v === 'string'){
-      const s = v.trim();
-      if (!s) return null;
+      const kd = parseKoreanDateString(v, fallbackYear);
+      if (kd) return kd;
 
-      const d1 = new Date(s);
+      const d1 = new Date(v);
       if (!isNaN(d1)) return d1;
 
-      const m = s.match(/^(\d{4})[.\-\/](\d{1,2})[.\-\/](\d{1,2})(?:\s+(\d{1,2}):(\d{2})(?::(\d{2}))?)?/);
-      if (m){
-        const d = new Date(+m[1], +m[2]-1, +m[3], m[4]?+m[4]:0, m[5]?+m[5]:0, m[6]?+m[6]:0);
-        if (!isNaN(d)) return d;
-      }
+      const v2 = v.replace(/\./g, '-');
+      const d2 = new Date(v2);
+      if (!isNaN(d2)) return d2;
     }
     return null;
   }
 
-  function extractDatesFromSheet(ws){
-    const rows = XLSX.utils.sheet_to_json(ws, { header: 1, raw: true, defval: null });
-    const out = [];
-    for (let r=0; r<rows.length; r++){
-      for (let c=0; c<rows[r].length; c++){
-        const d = toDateAny(rows[r][c]);
-        if (d) out.push(d);
+  // ---------- Binning ----------
+  function buildBins(payments, binMinutes, startHHMM, endHHMM, removeZeroBins){
+    if (!payments.length) return null;
+
+    let minT = payments[0].getTime();
+    let maxT = payments[0].getTime();
+    for (const d of payments){
+      const t = d.getTime();
+      if (t < minT) minT = t;
+      if (t > maxT) maxT = t;
+    }
+    const minD = new Date(minT);
+    const maxD = new Date(maxT);
+
+    let start = setDayTime(minD, startHHMM);
+    let end   = setDayTime(maxD, endHHMM);
+    if (end.getTime() < start.getTime()){
+      end = new Date(end.getTime() + 24*3600*1000);
+    }
+
+    const stepMs = binMinutes * 60 * 1000;
+
+    let labels = [];
+    let edges = [];
+    for (let t = start.getTime(); t <= end.getTime(); t += stepMs){
+      edges.push(new Date(t));
+      labels.push(fmtK(new Date(t)));
+    }
+
+    let counts = new Array(edges.length).fill(0);
+    let inRange = 0;
+    const startT = start.getTime();
+    const endT = end.getTime();
+
+    for (const d of payments){
+      const tt = d.getTime();
+      if (tt < startT || tt > endT) continue;
+      inRange++;
+      const idx = Math.floor((tt - startT) / stepMs);
+      if (idx >= 0 && idx < counts.length) counts[idx] += 1;
+    }
+
+    // ✅ 라인도 counts 그대로 쓸 거라 "누적"은 만들지 않음
+    let removedZero = 0;
+    if (removeZeroBins){
+      const keepIdx = [];
+      for (let i=0;i<counts.length;i++){
+        if (counts[i] > 0) keepIdx.push(i);
+        else removedZero++;
+      }
+
+      if (keepIdx.length > 0){
+        const newLabels = [];
+        const newEdges = [];
+        const newCounts = [];
+        for (const i of keepIdx){
+          newLabels.push(labels[i]);
+          newEdges.push(edges[i]);
+          newCounts.push(counts[i]);
+        }
+        labels = newLabels;
+        edges = newEdges;
+        counts = newCounts;
       }
     }
-    return out;
+
+    return {start, end, minD, maxD, labels, edges, counts, inRange, removedZero};
   }
 
-  function buildRange(dates, startClock, endClock){
-    const min = new Date(Math.min(...dates.map(d=>d.getTime())));
-    const max = new Date(Math.max(...dates.map(d=>d.getTime())));
-    const s = parseClock(startClock);
-    const e = parseClock(endClock);
-
-    const start = new Date(min.getFullYear(), min.getMonth(), min.getDate(), s.h, s.m, 0, 0);
-    const end   = new Date(max.getFullYear(), max.getMonth(), max.getDate(), e.h, e.m, 0, 0);
-
-    if (end.getTime() <= start.getTime()){
-      const fallbackEnd = new Date(max);
-      fallbackEnd.setSeconds(0,0);
-      return {start, end:fallbackEnd, min, max, usedFallback:true};
-    }
-    return {start, end, min, max, usedFallback:false};
-  }
-
-  function binCounts(dates, start, end, binMinutes){
-    const ms = binMinutes * 60 * 1000;
-    const n = Math.floor((end - start) / ms) + 1;
-
-    const counts = new Array(n).fill(0);
-    for (const d of dates){
-      const t = d.getTime();
-      if (t < start.getTime() || t > end.getTime()) continue;
-      const idx = Math.floor((t - start.getTime()) / ms);
-      if (idx >= 0 && idx < n) counts[idx]++;
-    }
-
-    const labels = [];
-    for (let i=0;i<n;i++){
-      const t = new Date(start.getTime() + i*ms);
-      labels.push(`${pad2(t.getMonth()+1)}/${pad2(t.getDate())} ${pad2(t.getHours())}:${pad2(t.getMinutes())}`);
-    }
-    return {labels, counts};
-  }
-
-  function cumulative(arr){
-    const out=[]; let s=0;
-    for (const x of arr){ s+=x; out.push(s); }
-    return out;
-  }
-
-  function movingAverage(arr, windowSize){
-    const out = new Array(arr.length).fill(null);
-    const w = Math.max(1, windowSize|0);
-    let sum = 0, q = [];
-    for (let i=0;i<arr.length;i++){
-      q.push(arr[i]); sum += arr[i];
-      if (q.length > w) sum -= q.shift();
-      if (q.length === w) out[i] = sum / w;
-    }
-    return out;
-  }
-
-  // ---------------- Chart ----------------
+  // ---------- Chart ----------
   let chart = null;
-  function renderChart(labels, bars, line, lineLabel){
-    const el = document.getElementById('chart');
+
+  function renderChart(model, barThickness){
+    const ctx = document.getElementById('chart');
     if (chart) chart.destroy();
 
-    chart = new Chart(el, {
-      type: 'bar',
+    const {labels, counts, edges} = model;
+    const stepMs = edges.length >= 2 ? (edges[1].getTime() - edges[0].getTime()) : 0;
+    const barW = Math.max(6, Math.min(60, Number(barThickness) || 24));
+
+    chart = new Chart(ctx, {
       data: {
         labels,
         datasets: [
-          { type:'bar', label:'구간별 결제건수', data: bars, borderWidth: 1, yAxisID:'y' },
-          { type:'line', label: lineLabel, data: line, tension: 0.35, pointRadius: 0, borderWidth: 2, yAxisID:'y1' }
+          {
+            type:'bar',
+            label:'구간별 결제 건수(막대)',
+            data: counts,
+            borderWidth: 1,
+            barThickness: barW,
+            maxBarThickness: Math.min(70, barW + 14),
+            categoryPercentage: 0.9,
+            barPercentage: 0.95
+          },
+          {
+            type:'line',
+            label:'구간별 결제 건수(곡선)',
+            data: counts,
+            tension:0.35,
+            pointRadius:0,
+            borderWidth:2
+          }
         ]
       },
       options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        interaction: { mode: 'index', intersect: false },
-        plugins: {
-          tooltip: {
-            callbacks: {
-              label: (ctx) => {
-                const label = ctx.dataset.label || '';
-                const v = ctx.raw;
-                if (ctx.dataset.type === 'bar') return `${label}: ${v}건`;
-                if (v == null) return `${label}: -`;
-                return `${label}: ${Number.isInteger(v) ? v : v.toFixed(2)}`;
+        responsive:true,
+        maintainAspectRatio:false,
+        interaction:{ mode:'index', intersect:false },
+        plugins:{
+          tooltip:{
+            callbacks:{
+              title:(items)=>{
+                const i = items?.[0]?.dataIndex ?? 0;
+                const t0 = edges[i];
+                const t1 = new Date(t0.getTime() + stepMs);
+                return `${fmtK(t0)} ~ ${fmtK(t1)}`;
+              },
+              label:(item)=>{
+                return `${item.dataset.label}: ${item.formattedValue}건`;
               }
             }
-          }
+          },
+          legend:{ position:'top' }
         },
-        scales: {
-          x: { ticks: { autoSkip: true, maxTicksLimit: 14 } },
-          y: { beginAtZero: true, title: { display: true, text: '구간별 건수(막대)' } },
-          y1:{ beginAtZero: true, position:'right', grid:{ drawOnChartArea:false }, title:{ display:true, text:'곡선(누적/평균)' } }
+        scales:{
+          x:{
+            ticks:{
+              maxRotation:0,
+              autoSkip:true,
+              maxTicksLimit: 24
+            }
+          },
+          y:{ beginAtZero:true, title:{ display:true, text:'구간 결제 건수' } }
         }
       }
     });
+
+    const stats = document.getElementById('stats');
+    stats.innerHTML = `
+      <div class="pill"><b>자동 집계 구간</b>: ${fmtK(model.start)} ~ ${fmtK(model.end)}</div>
+      <div class="pill"><b>데이터 최소/최대</b>: ${fmtK(model.minD)} ~ ${fmtK(model.maxD)}</div>
+      <div class="pill"><b>구간 내 결제(집계됨)</b>: ${model.inRange}건</div>
+      <div class="pill"><b>총 결제(파싱 성공)</b>: ${model.totalParsed}건</div>
+      <div class="pill"><b>파싱 실패</b>: ${model.parseFail}건</div>
+      <div class="pill"><b>원본 행 수(헤더 제외)</b>: ${model.totalRows}행</div>
+      <div class="pill"><b>표시 구간 수</b>: ${model.labels.length}개</div>
+      <div class="pill"><b>제거된 0건 구간</b>: ${model.removedZero}개</div>
+    `;
   }
 
-  // ---------------- Wiring ----------------
-  const fileEl = document.getElementById('file');
-  const btn = document.getElementById('render');
-  let dates = [];
+  // ---------- Read Excel ----------
+  let header = [];
+  let dataRows = [];
 
-  fileEl.addEventListener('change', async ()=>{
-    clearMsg();
-    dates = [];
-    btn.disabled = true;
+  function guessTimeColIndex(headerRow){
+    const keys = ['결제', '결제일', '결제시간', '승인', '승인시간', '시간', '일시', '거래일시', '거래시간', 'datetime', 'timestamp'];
+    let bestIdx = 0, bestScore = -1;
+
+    for (let i=0;i<headerRow.length;i++){
+      const h = safeStr(headerRow[i]).toLowerCase().trim();
+      if (!h) continue;
+      let score = 0;
+      for (const k of keys){
+        if (h.includes(k.toLowerCase())) score += 10;
+      }
+      if (h.includes('date') || h.includes('time')) score += 3;
+      if (score > bestScore){
+        bestScore = score;
+        bestIdx = i;
+      }
+    }
+    return bestIdx;
+  }
+
+  function buildColSelect(headerRow, selectedIdx){
+    const sel = document.getElementById('timeCol');
+    sel.innerHTML = '';
+    headerRow.forEach((h, i)=>{
+      const opt = document.createElement('option');
+      const name = safeStr(h).trim() || `(빈 헤더 ${i+1}열)`;
+      opt.value = String(i);
+      opt.textContent = `${i+1}열: ${name}`;
+      sel.appendChild(opt);
+    });
+    sel.value = String(selectedIdx);
+    sel.disabled = false;
+  }
+
+  function detectFallbackYear(colIdx){
+    for (let r=0; r<dataRows.length; r++){
+      const v = dataRows[r]?.[colIdx];
+      if (v instanceof Date && !isNaN(v)) return v.getFullYear();
+      if (typeof v === 'string'){
+        const m = v.trim().match(/^(\d{4})\./);
+        if (m) return Number(m[1]);
+      }
+    }
+    return new Date().getFullYear();
+  }
+
+  function parsePaymentsFromRows(colIdx){
+    const fallbackYear = detectFallbackYear(colIdx);
+    const payments = [];
+    const fail = [];
+
+    for (let r=0; r<dataRows.length; r++){
+      const v = dataRows[r]?.[colIdx];
+      const d = normalizeToDate(v, fallbackYear);
+      if (d) payments.push(d);
+      else if (safeStr(v).trim() !== '') fail.push({row: r+2, value: v});
+    }
+
+    return {payments, fail, fallbackYear};
+  }
+
+  function rebuild(){
+    const msg = document.getElementById('msg');
+    msg.textContent = '';
+
+    if (!dataRows.length){
+      msg.innerHTML = `<span class="error">엑셀을 먼저 업로드해주세요.</span>`;
+      return;
+    }
+
+    const binMinutes = Number(document.getElementById('bin').value);
+    const startHHMM = document.getElementById('startTime').value || '19:30';
+    const endHHMM   = document.getElementById('endTime').value || '11:45';
+    const colIdx = Number(document.getElementById('timeCol').value || '0');
+    const removeZeroBins = document.getElementById('removeZero').checked;
+    const barW = Number(document.getElementById('barW').value || 24);
+
+    const {payments, fail, fallbackYear} = parsePaymentsFromRows(colIdx);
+
+    // 디버그
+    const debug = document.getElementById('debug');
+    const okSample = payments.slice(0, 30).map(d=>fmtK(d)).join('\n');
+    const failSample = fail.slice(0, 20).map(x=>`row ${x.row}: ${safeStr(x.value)}`).join('\n');
+    debug.textContent =
+      `선택한 열: ${colIdx+1}열 / "${safeStr(header[colIdx]).trim()}"\n` +
+      `추정 연도(fallbackYear): ${fallbackYear}\n` +
+      `파싱 성공: ${payments.length}건\n파싱 실패: ${fail.length}건\n\n` +
+      `--- 파싱 성공 샘플(30개) ---\n${okSample}\n\n` +
+      `--- 파싱 실패 샘플(최대 20개) ---\n${failSample || '(없음)'}\n`;
+
+    if (!payments.length){
+      msg.innerHTML = `<span class="error">선택한 열에서 결제시간을 1건도 파싱 못 했어요. (열 선택/서식 확인)</span>`;
+      return;
+    }
+
+    const model = buildBins(payments, binMinutes, startHHMM, endHHMM, removeZeroBins);
+    if (!model){
+      msg.innerHTML = `<span class="error">차트 모델 생성 실패</span>`;
+      return;
+    }
+
+    model.totalParsed = payments.length;
+    model.parseFail = fail.length;
+    model.totalRows = dataRows.length;
+
+    renderChart(model, barW);
+
+    const note = removeZeroBins
+      ? `0건 구간 제거 ON → 결제 발생한 구간만 표시`
+      : `0건 구간 제거 OFF → 전체 시간대 표시`;
+
+    msg.innerHTML = (fail.length === 0)
+      ? `<span class="ok">OK</span> ${note}`
+      : `<span class="error">주의</span> 파싱 실패 ${fail.length}건 존재. (디버그 보기에서 실패 샘플 확인) / ${note}`;
+  }
+
+  document.getElementById('file').addEventListener('change', async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    document.getElementById('fileInfo').textContent = `선택됨: ${file.name}`;
+    const msg = document.getElementById('msg');
+    msg.textContent = '읽는 중...';
 
     try{
-      await ensureLibs();
+      const data = new Uint8Array(await file.arrayBuffer());
+      const wb = XLSX.read(data, {type:'array', cellDates:true});
+      const sheetName = wb.SheetNames[0];
+      const ws = wb.Sheets[sheetName];
 
-      const f = fileEl.files?.[0];
-      if (!f) return;
+      const rows = XLSX.utils.sheet_to_json(ws, {header:1, raw:true, defval:''});
+      header = rows[0] || [];
+      dataRows = rows.slice(1);
 
-      const ab = await f.arrayBuffer();
-      const wb = XLSX.read(ab, { type:'array', cellDates:true });
-      const ws = wb.Sheets[wb.SheetNames[0]];
+      const guessed = guessTimeColIndex(header);
+      buildColSelect(header, guessed);
 
-      dates = extractDatesFromSheet(ws);
-      if (!dates.length) throw new Error('엑셀에서 날짜/시간으로 인식되는 값이 0건입니다.');
-
-      showOk(`✅ 날짜/시간 ${dates.length}건 인식 완료\n(시트 전체 스캔 방식)`);
-      btn.disabled = false;
-    }catch(e){
-      showWarn(`파일 읽는 중 오류:\n${e?.message || e}`);
+      msg.textContent = `완료! (시트: ${sheetName}, 원본 데이터 ${dataRows.length}행)`;
+      rebuild();
+    } catch(err){
+      console.error(err);
+      msg.innerHTML = `<span class="error">엑셀 읽기 실패: ${String(err)}</span>`;
     }
   });
 
-  btn.addEventListener('click', async ()=>{
-    clearMsg();
-    try{
-      await ensureLibs();
-      if (!dates.length) throw new Error('먼저 파일을 업로드해 주세요.');
+  document.getElementById('renderBtn').addEventListener('click', rebuild);
+  document.getElementById('bin').addEventListener('change', rebuild);
+  document.getElementById('startTime').addEventListener('change', rebuild);
+  document.getElementById('endTime').addEventListener('change', rebuild);
+  document.getElementById('timeCol').addEventListener('change', rebuild);
+  document.getElementById('removeZero').addEventListener('change', rebuild);
+  document.getElementById('barW').addEventListener('input', rebuild);
 
-      const binMinutes = Math.max(1, parseInt(document.getElementById('binMinutes').value,10) || 15);
-      const startClock = document.getElementById('startClock').value || '19:30';
-      const endClock   = document.getElementById('endClock').value || '11:45';
-      const lineType   = document.getElementById('lineType').value;
+  // 샘플 데이터(중복 시간 포함)
+  document.getElementById('demoBtn').addEventListener('click', () => {
+    header = ['결제시간', '기타'];
+    dataRows = [];
 
-      const {start, end, min, max, usedFallback} = buildRange(dates, startClock, endClock);
-      const {labels, counts} = binCounts(dates, start, end, binMinutes);
+    const base = new Date();
+    base.setDate(base.getDate()-2);
+    base.setHours(19,30,0,0);
 
-      let line, lineLabel;
-      if (lineType === 'movingAvg'){
-        const windowSize = Math.max(2, Math.round(60/binMinutes));
-        line = movingAverage(counts, windowSize);
-        lineLabel = `이동평균(${windowSize}구간)`;
-      } else {
-        line = cumulative(counts);
-        lineLabel = '누적 결제건수';
-      }
-
-      showOk(
-        `✅ 범위: ${fmt(start)} ~ ${fmt(end)}${usedFallback ? ' (종료시각 보정됨)' : ''}\n` +
-        `✅ 파일 실제 결제시간: ${fmt(min)} ~ ${fmt(max)}\n` +
-        `✅ 총 결제건수(인식): ${dates.length}건`
-      );
-
-      renderChart(labels, counts, line, lineLabel);
-    }catch(e){
-      showWarn(`그래프 생성 오류:\n${e?.message || e}`);
+    // 같은 시간대에 몰아넣기(중복)
+    for (let i=0;i<60;i++){
+      dataRows.push([new Date(base.getTime() + (i%3)*60*1000), 'dup']); // 3분 안에 몰림
     }
+    // 랜덤
+    for (let i=0;i<140;i++){
+      const jitter = Math.floor(Math.random()* (40*60*60*1000));
+      dataRows.push([new Date(base.getTime()+jitter), 'rnd']);
+    }
+
+    buildColSelect(header, 0);
+    document.getElementById('fileInfo').textContent = '샘플 데이터 사용 중';
+    document.getElementById('msg').textContent = `샘플 완료! (${dataRows.length}행)`;
+    rebuild();
   });
 </script>
 </body>
